@@ -1,0 +1,39 @@
+{
+  "name": "nest-oracle-ui",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.20",
+    "clsx": "^2.1.1",
+    "js-sha3": "^0.9.3",
+    "lucide-react": "^0.563.0",
+    "near-connect-hooks": "^1.0.2",
+    "next": "^15",
+    "react": "^18",
+    "react-dom": "^18",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^24.7.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.1",
+    "autoprefixer": "^10.4.23",
+    "encoding": "^0.1.13",
+    "eslint": "^9",
+    "eslint-config-next": "^15",
+    "pino-pretty": "^11.2.2",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3"
+  }
+}
