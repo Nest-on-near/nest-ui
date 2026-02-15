@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatAccountId, formatTokenAmount } from '@/lib/utils';
-import { decodeBytes32 } from '@/lib/bytes32';
+import { decodeBytes32, decodeClaimForDisplay } from '@/lib/bytes32';
 import { getCurrencies, DEFAULT_NETWORK } from '@/lib/near/config';
 import { fetchAssertions, IndexerAssertion } from '@/lib/api';
 
@@ -140,7 +140,7 @@ export default function SettledPage() {
 function SettledAssertionCard({ assertion }: { assertion: IndexerAssertion }) {
   const currencies = getCurrencies(DEFAULT_NETWORK);
   const currencyConfig = currencies[assertion.currency];
-  const claimText = decodeBytes32(assertion.claim);
+  const claimText = decodeClaimForDisplay(assertion.claim);
 
   return (
     <Card>

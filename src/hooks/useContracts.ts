@@ -19,6 +19,8 @@ import {
   getStoredCommitments,
   getCommitmentForRequest,
   removeCommitment,
+  DVM_TRUE_PRICE,
+  DVM_FALSE_PRICE,
 } from '@/lib/near/contracts';
 import type { StoredVoteCommitment, DvmPriceRequest } from '@/lib/near/contracts';
 import { fetchAssertions, type IndexerAssertion } from '@/lib/api';
@@ -192,17 +194,20 @@ export function useCommitVote() {
       requestIdHex,
       assertionId,
       vote,
-      votingPower,
+      stakeAmountRaw,
     }: {
       requestId: number[];
       requestIdHex: string;
       assertionId: string;
       vote: 'true' | 'false';
-      votingPower: string;
+      stakeAmountRaw: string;
     }) => {
       if (!signedAccountId) throw new Error('Wallet not connected');
+      if (!stakeAmountRaw || BigInt(stakeAmountRaw) <= 0n) {
+        throw new Error('Stake amount must be greater than 0');
+      }
 
-      const price = vote === 'true' ? 1 : 0;
+      const price = vote === 'true' ? DVM_TRUE_PRICE : DVM_FALSE_PRICE;
       const salt = generateSalt();
       const commitHash = await computeVoteHash(price, salt);
 
@@ -212,14 +217,14 @@ export function useCommitVote() {
       const commitment: StoredVoteCommitment = {
         request_id: requestIdHex,
         assertion_id: assertionId,
-        price: String(price),
+        price: price.toString(),
         salt,
         commit_hash: commitHash,
         committed_at: Date.now(),
       };
       storeCommitment(signedAccountId, commitment);
 
-      const txArgs = commitVote(requestId, commitHash, votingPower);
+      const txArgs = commitVote(requestId, commitHash, stakeAmountRaw);
       await callFunction(txArgs);
 
       return commitment;
@@ -260,7 +265,7 @@ export function useRevealVote() {
         throw new Error('No stored commitment found for this vote');
       }
 
-      const price = Number(commitment.price);
+      const price = BigInt(commitment.price);
       const txArgs = revealVote(requestId, price, commitment.salt);
       await callFunction(txArgs);
 

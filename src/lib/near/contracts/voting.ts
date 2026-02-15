@@ -3,6 +3,8 @@ import { hexToBytes32Array } from '@/lib/bytes32';
 import type { DvmPriceRequest, DvmConfig } from './types';
 
 const contracts = getContracts(DEFAULT_NETWORK);
+export const DVM_TRUE_PRICE = 1_000_000_000_000_000_000n; // 1e18
+export const DVM_FALSE_PRICE = 0n;
 const RPC_URL =
   DEFAULT_NETWORK === 'mainnet'
     ? 'https://rpc.mainnet.near.org'
@@ -100,10 +102,10 @@ export async function getTokenBalance(
 /**
  * Convert an i128 value to 16 little-endian bytes (matching Rust's i128::to_le_bytes).
  */
-function i128ToLeBytes(value: number): Uint8Array {
+function i128ToLeBytes(value: bigint): Uint8Array {
   const bytes = new Uint8Array(16);
   const view = new DataView(bytes.buffer);
-  const bigValue = BigInt(value);
+  const bigValue = value;
   // Little-endian: low 64 bits first, then high 64 bits
   view.setBigUint64(0, bigValue & 0xFFFFFFFFFFFFFFFFn, true);
   view.setBigUint64(8, (bigValue >> 64n) & 0xFFFFFFFFFFFFFFFFn, true);
@@ -115,10 +117,10 @@ function i128ToLeBytes(value: number): Uint8Array {
  * Must match the Rust contract's compute_vote_hash_static().
  */
 export async function computeVoteHash(
-  price: number,
+  price: bigint | string | number,
   salt: number[]
 ): Promise<number[]> {
-  const priceBytes = i128ToLeBytes(price);
+  const priceBytes = i128ToLeBytes(BigInt(price));
   const data = new Uint8Array(16 + 32);
   data.set(priceBytes, 0);
   data.set(new Uint8Array(salt), 16);
@@ -145,16 +147,22 @@ export function commitVote(
   commitHash: number[],
   stakedAmount: string
 ) {
+  const msg = JSON.stringify({
+    action: 'CommitVote',
+    request_id: requestId,
+    commit_hash: commitHash,
+  });
+
   return {
-    contractId: contracts.voting,
-    method: 'commit_vote',
+    contractId: contracts.votingToken,
+    method: 'ft_transfer_call',
     args: {
-      request_id: requestId,
-      commit_hash: commitHash,
-      staked_amount: stakedAmount,
+      receiver_id: contracts.voting,
+      amount: stakedAmount,
+      msg,
     },
-    gas: '100000000000000', // 100 TGas
-    deposit: '0',
+    gas: '200000000000000', // 200 TGas
+    deposit: '1',
   };
 }
 
@@ -164,15 +172,18 @@ export function commitVote(
  */
 export function revealVote(
   requestId: number[],
-  price: number,
+  price: bigint | string | number,
   salt: number[]
 ) {
+  // Contract expects `price: i128` as a JSON number (not string).
+  // Keep the canonical 1e18 TRUE value while emitting numeric JSON.
+  const priceNumeric = Number(BigInt(price).toString());
   return {
     contractId: contracts.voting,
     method: 'reveal_vote',
     args: {
       request_id: requestId,
-      price,
+      price: priceNumeric,
       salt,
     },
     gas: '100000000000000', // 100 TGas

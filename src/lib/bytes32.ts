@@ -58,6 +58,23 @@ export function decodeBytes32(hex: string): string {
 }
 
 /**
+ * Decode bytes32 for UI display.
+ * If bytes are not mostly printable UTF-8 text, return a short hash label.
+ */
+export function decodeClaimForDisplay(hex: string): string {
+  const decoded = decodeBytes32(hex);
+  const printable = decoded.replace(/[^\x20-\x7E]/g, '');
+  const isMostlyPrintable = decoded.length > 0 && printable.length / decoded.length > 0.9;
+
+  if (isMostlyPrintable && printable.trim().length > 0) {
+    return printable;
+  }
+
+  const normalized = hex.startsWith('0x') ? hex.toLowerCase() : `0x${hex.toLowerCase()}`;
+  return `Claim Hash: ${normalized.slice(0, 10)}...${normalized.slice(-8)}`;
+}
+
+/**
  * Encode a longer text as multiple Bytes32 values (for claims > 32 bytes)
  * Returns an array of hex strings
  */

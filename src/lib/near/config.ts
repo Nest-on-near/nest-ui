@@ -14,8 +14,8 @@ export const CONTRACTS = {
     slashingLibrary: 'nest-slashing.near',
   },
   testnet: {
-    oracle: 'nest-oracle-3.testnet',
-    voting: 'nest-voting-1.testnet',
+    oracle: 'oracle7-260215a.testnet',
+    voting: 'nest-voting-3.testnet',
     votingToken: 'nest-token-1.testnet',
     finder: 'nest-finder-1.testnet',
     store: 'nest-store-1.testnet',

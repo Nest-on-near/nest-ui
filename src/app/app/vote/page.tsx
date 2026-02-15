@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useNearWallet } from 'near-connect-hooks';
 import {
   Clock,
@@ -18,8 +19,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { formatAccountId, formatDuration, formatTokenAmount, nsToMs } from '@/lib/utils';
-import { decodeBytes32 } from '@/lib/bytes32';
+import {
+  formatAccountId,
+  formatDuration,
+  formatTokenAmount,
+  nsToMs,
+  parseTokenAmount,
+} from '@/lib/utils';
+import { decodeClaimForDisplay } from '@/lib/bytes32';
 import { useToast } from '@/components/ui/toast';
 import {
   useDisputedVotes,
@@ -35,8 +42,25 @@ import {
 } from '@/hooks/useContracts';
 import type { StoredVoteCommitment } from '@/lib/near/contracts';
 
+const TRUE_PRICE_THRESHOLD = 1_000_000_000_000_000_000n;
+
+function normalizeHexFilter(value: string | null): string | null {
+  if (!value) return null;
+  return value.trim().toLowerCase().replace(/^0x/, '');
+}
+
+function isTruePrice(price: string | number | null | undefined): boolean {
+  if (price === null || price === undefined) return false;
+  try {
+    return BigInt(String(price)) >= TRUE_PRICE_THRESHOLD;
+  } catch {
+    return false;
+  }
+}
+
 export default function VotePage() {
   const { signedAccountId } = useNearWallet();
+  const searchParams = useSearchParams();
 
   const { data: disputedVotes, isLoading } = useDisputedVotes();
   const { data: dvmConfig } = useDvmConfig();
@@ -46,6 +70,25 @@ export default function VotePage() {
   const committedRequestIds = useMemo(() => {
     return new Set((storedCommitments || []).map((c) => c.request_id));
   }, [storedCommitments]);
+
+  const assertionFilter = normalizeHexFilter(searchParams.get('assertion_id'));
+  const requestFilter = normalizeHexFilter(searchParams.get('request_id'));
+
+  const visibleVotes = useMemo(() => {
+    const source = disputedVotes || [];
+    if (!assertionFilter && !requestFilter) {
+      return source;
+    }
+    return source.filter((item) => {
+      const assertionMatch = assertionFilter
+        ? normalizeHexFilter(item.assertion.assertion_id) === assertionFilter
+        : true;
+      const requestMatch = requestFilter
+        ? normalizeHexFilter(item.dvmRequestIdHex ?? null) === requestFilter
+        : true;
+      return assertionMatch && requestMatch;
+    });
+  }, [disputedVotes, assertionFilter, requestFilter]);
 
   return (
     <div className="space-y-6">
@@ -99,25 +142,33 @@ export default function VotePage() {
         </Card>
       )}
 
+      {(assertionFilter || requestFilter) && (
+        <Card>
+          <CardContent className="p-4 text-sm text-foreground-secondary">
+            Showing filtered vote context from deep link.
+          </CardContent>
+        </Card>
+      )}
+
       {/* Disputed Votes */}
       {!isLoading && (
         <div>
           <h2 className="text-lg font-semibold text-foreground mb-4">
-            Disputed Assertions ({disputedVotes?.length || 0})
+            Disputed Assertions ({visibleVotes.length})
           </h2>
 
-          {!disputedVotes || disputedVotes.length === 0 ? (
+          {visibleVotes.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <CheckCircle2 className="h-12 w-12 mx-auto text-success mb-4" />
                 <p className="text-foreground-secondary">
-                  No disputed assertions awaiting votes.
+                  No disputed assertions match this filter.
                 </p>
               </CardContent>
             </Card>
           ) : (
             <div className="space-y-4">
-              {disputedVotes.map((item) => {
+              {visibleVotes.map((item) => {
                 const isCommitted = item.dvmRequestIdHex
                   ? committedRequestIds.has(item.dvmRequestIdHex)
                   : false;
@@ -196,6 +247,7 @@ function VoteCard({
   const [selectedVote, setSelectedVote] = useState<'true' | 'false' | null>(
     null
   );
+  const [stakeAmount, setStakeAmount] = useState('');
   const commitMutation = useCommitVote();
   const revealMutation = useRevealVote();
   const advanceMutation = useAdvanceToReveal();
@@ -204,7 +256,7 @@ function VoteCard({
   const { addToast } = useToast();
 
   const { assertion, dvmRequestId, dvmRequestIdHex, dvmRequest } = item;
-  const claimText = decodeBytes32(assertion.claim);
+  const claimText = decodeClaimForDisplay(assertion.claim);
   const phase = dvmRequest?.phase || null;
 
   // Compute phase timing
@@ -244,6 +296,36 @@ function VoteCard({
 
   const handleCommit = async (vote: 'true' | 'false') => {
     if (!dvmRequestId || !dvmRequestIdHex) return;
+    if (!stakeAmount.trim()) {
+      addToast({
+        type: 'error',
+        title: 'Stake required',
+        message: 'Enter stake amount in NEST.',
+      });
+      return;
+    }
+
+    let stakeAmountRaw: string;
+    try {
+      stakeAmountRaw = parseTokenAmount(stakeAmount, 24);
+      if (BigInt(stakeAmountRaw) <= 0n) throw new Error();
+      if (BigInt(stakeAmountRaw) > BigInt(votingPower)) {
+        addToast({
+          type: 'error',
+          title: 'Insufficient voting power',
+          message: 'Stake amount exceeds your voting token balance.',
+        });
+        return;
+      }
+    } catch {
+      addToast({
+        type: 'error',
+        title: 'Invalid stake amount',
+        message: 'Enter a valid numeric stake amount.',
+      });
+      return;
+    }
+
     setSelectedVote(vote);
     try {
       await commitMutation.mutateAsync({
@@ -251,7 +333,7 @@ function VoteCard({
         requestIdHex: dvmRequestIdHex,
         assertionId: assertion.assertion_id,
         vote,
-        votingPower,
+        stakeAmountRaw,
       });
       addToast({
         type: 'success',
@@ -412,7 +494,7 @@ function VoteCard({
                   Committed
                   {storedCommitment && (
                     <span className="ml-1">
-                      ({storedCommitment.price === '1' ? 'TRUE' : 'FALSE'})
+                      ({isTruePrice(storedCommitment.price) ? 'TRUE' : 'FALSE'})
                     </span>
                   )}
                 </Badge>
@@ -458,7 +540,7 @@ function VoteCard({
                       Vote resolved
                       {dvmRequest?.resolved_price !== null &&
                         dvmRequest?.resolved_price !== undefined &&
-                        ` — ${dvmRequest.resolved_price === 1 ? 'TRUE' : 'FALSE'}`}
+                        ` — ${isTruePrice(dvmRequest.resolved_price) ? 'TRUE' : 'FALSE'}`}
                     </span>
                     {!assertion.settled && (
                       <Button
@@ -475,37 +557,57 @@ function VoteCard({
                 ) : null}
               </div>
             ) : phase === 'Commit' && !commitExpired ? (
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-foreground-muted">
-                  Your vote:
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant={
-                      selectedVote === 'true' ? 'primary' : 'outline'
-                    }
-                    onClick={() => handleCommit('true')}
+              <div className="flex flex-col gap-3 w-full">
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-foreground-muted">
+                    Stake (NEST):
+                  </span>
+                  <input
+                    className="h-9 rounded-md border border-border px-3 text-sm bg-background"
+                    type="number"
+                    min="0"
+                    step="0.0001"
+                    placeholder="0.0"
+                    value={stakeAmount}
+                    onChange={(e) => setStakeAmount(e.target.value)}
                     disabled={disabled || commitMutation.isPending}
-                    loading={
-                      commitMutation.isPending && selectedVote === 'true'
-                    }
-                  >
-                    Vote TRUE
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={
-                      selectedVote === 'false' ? 'destructive' : 'outline'
-                    }
-                    onClick={() => handleCommit('false')}
-                    disabled={disabled || commitMutation.isPending}
-                    loading={
-                      commitMutation.isPending && selectedVote === 'false'
-                    }
-                  >
-                    Vote FALSE
-                  </Button>
+                  />
+                  <span className="text-xs text-foreground-muted">
+                    Balance: {formatTokenAmount(votingPower, 24)} NEST
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-foreground-muted">
+                    Your vote:
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant={
+                        selectedVote === 'true' ? 'primary' : 'outline'
+                      }
+                      onClick={() => handleCommit('true')}
+                      disabled={disabled || commitMutation.isPending}
+                      loading={
+                        commitMutation.isPending && selectedVote === 'true'
+                      }
+                    >
+                      Vote TRUE
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={
+                        selectedVote === 'false' ? 'destructive' : 'outline'
+                      }
+                      onClick={() => handleCommit('false')}
+                      disabled={disabled || commitMutation.isPending}
+                      loading={
+                        commitMutation.isPending && selectedVote === 'false'
+                      }
+                    >
+                      Vote FALSE
+                    </Button>
+                  </div>
                 </div>
               </div>
             ) : commitExpired ? (
@@ -550,7 +652,7 @@ function VoteCard({
                   Vote resolved
                   {dvmRequest?.resolved_price !== null &&
                     dvmRequest?.resolved_price !== undefined &&
-                    ` — ${dvmRequest.resolved_price === 1 ? 'TRUE' : 'FALSE'}`}
+                    ` — ${isTruePrice(dvmRequest.resolved_price) ? 'TRUE' : 'FALSE'}`}
                 </span>
                 {!assertion.settled && (
                   <Button

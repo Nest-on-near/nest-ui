@@ -15,7 +15,7 @@ export interface DvmPriceRequest {
   commit_start_time: number;
   /** Nanoseconds since epoch (0 if not yet in reveal) */
   reveal_start_time: number;
-  resolved_price: number | null;
+  resolved_price: string | number | null;
 }
 
 /** DVM configuration from get_config() */
@@ -31,7 +31,7 @@ export interface StoredVoteCommitment {
   request_id: string;
   /** Hex string of the assertion_id (for display) */
   assertion_id: string;
-  /** "1" for TRUE, "0" for FALSE */
+  /** "1000000000000000000" for TRUE, "0" for FALSE */
   price: string;
   /** 32-byte salt as number array */
   salt: number[];
