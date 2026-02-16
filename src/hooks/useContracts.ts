@@ -7,16 +7,20 @@ import {
   getDvmRequest,
   getDvmConfig,
   getVotingPower,
+  getStorageBalanceOf,
   computeVoteHash,
   generateSalt,
   commitVote,
   revealVote,
   advanceToReveal,
   resolvePrice,
+  storageDeposit,
+  depositCollateralToVault,
   disputeAssertion,
   settleAssertion,
   retrySettlementPayout,
   getOracleAssertion,
+  getTokenBalance,
   storeCommitment,
   getStoredCommitments,
   getCommitmentForRequest,
@@ -32,11 +36,16 @@ import type {
 } from '@/lib/near/contracts';
 import { fetchAssertions, type IndexerAssertion } from '@/lib/api';
 import { bytes32ArrayToHex } from '@/lib/bytes32';
+import { getContracts, DEFAULT_NETWORK } from '@/lib/near/config';
 
 // ==================== Query Keys ====================
 
 export const contractKeys = {
   votingPower: (accountId: string) => ['votingPower', accountId] as const,
+  tokenBalance: (tokenId: string, accountId: string) =>
+    ['tokenBalance', tokenId, accountId] as const,
+  tokenStorage: (tokenId: string, accountId: string) =>
+    ['tokenStorage', tokenId, accountId] as const,
   storedCommitments: (accountId: string) =>
     ['storedCommitments', accountId] as const,
   disputedVotes: ['disputed-votes'] as const,
@@ -125,6 +134,82 @@ export function useVotingPower() {
     queryFn: () => getVotingPower(signedAccountId!),
     enabled: !!signedAccountId,
     staleTime: 60000,
+  });
+}
+
+export function useTokenBalance(tokenContractId: string) {
+  const { signedAccountId } = useNearWallet();
+
+  return useQuery({
+    queryKey: contractKeys.tokenBalance(tokenContractId, signedAccountId || ''),
+    queryFn: () => getTokenBalance(tokenContractId, signedAccountId!),
+    enabled: !!signedAccountId,
+    staleTime: 10000,
+  });
+}
+
+export function useStorageRegistered(tokenContractId: string) {
+  const { signedAccountId } = useNearWallet();
+
+  return useQuery({
+    queryKey: contractKeys.tokenStorage(tokenContractId, signedAccountId || ''),
+    queryFn: async () => {
+      const balance = await getStorageBalanceOf(tokenContractId, signedAccountId!);
+      return balance !== null;
+    },
+    enabled: !!signedAccountId,
+    staleTime: 60000,
+  });
+}
+
+export function useRegisterTokenStorage() {
+  const { signedAccountId, callFunction } = useNearWallet();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ tokenContractId }: { tokenContractId: string }) => {
+      if (!signedAccountId) throw new Error('Wallet not connected');
+      const txArgs = storageDeposit(tokenContractId, signedAccountId);
+      return callFunction(txArgs);
+    },
+    onSuccess: (_, variables) => {
+      if (!signedAccountId) return;
+      queryClient.invalidateQueries({
+        queryKey: contractKeys.tokenStorage(variables.tokenContractId, signedAccountId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: contractKeys.tokenBalance(variables.tokenContractId, signedAccountId),
+      });
+    },
+  });
+}
+
+export function useDepositCollateralToVault() {
+  const { signedAccountId, callFunction } = useNearWallet();
+  const queryClient = useQueryClient();
+  const contracts = getContracts(DEFAULT_NETWORK);
+
+  return useMutation({
+    mutationFn: async ({ amountRaw }: { amountRaw: string }) => {
+      if (!signedAccountId) throw new Error('Wallet not connected');
+      if (BigInt(amountRaw) <= 0n) {
+        throw new Error('Amount must be greater than 0');
+      }
+      const txArgs = depositCollateralToVault(amountRaw);
+      return callFunction(txArgs);
+    },
+    onSuccess: () => {
+      if (!signedAccountId) return;
+      queryClient.invalidateQueries({
+        queryKey: contractKeys.votingPower(signedAccountId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: contractKeys.tokenBalance(contracts.collateralToken, signedAccountId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: contractKeys.tokenBalance(contracts.votingToken, signedAccountId),
+      });
+    },
   });
 }
 

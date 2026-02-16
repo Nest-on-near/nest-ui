@@ -20,8 +20,22 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Nest Oracle | Decentralized Truth on NEAR',
-  description: 'Optimistic Oracle for decentralized truth verification on NEAR Protocol',
+  title: {
+    default: 'Nest Oracle',
+    template: '%s | Nest Oracle',
+  },
+  description: 'Optimistic oracle for truth verification and dispute resolution on NEAR.',
+  applicationName: 'Nest Oracle',
+  openGraph: {
+    title: 'Nest Oracle',
+    description: 'Optimistic oracle for truth verification and dispute resolution on NEAR.',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Nest Oracle',
+    description: 'Optimistic oracle for truth verification and dispute resolution on NEAR.',
+  },
 };
 
 interface RootLayoutProps {

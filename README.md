@@ -1,4 +1,4 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+`nest-ui` is the frontend for the NEST oracle + DVM flow.
 
 ## Getting Started
 
@@ -16,9 +16,38 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## Environment Setup
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+Create your local env file:
+
+```bash
+cp .env.example .env.local
+```
+
+The UI supports per-network contract overrides.
+For current testnet deployment, set:
+
+```bash
+NEXT_PUBLIC_TESTNET_ORACLE=nest-oracle-6.testnet
+NEXT_PUBLIC_TESTNET_VOTING=nest-voting-4.testnet
+NEXT_PUBLIC_TESTNET_VOTING_TOKEN=nest-token-2.testnet
+NEXT_PUBLIC_TESTNET_VAULT=nest-vault-2.testnet
+NEXT_PUBLIC_TESTNET_COLLATERAL_TOKEN=mocknear-1.testnet
+NEXT_PUBLIC_TESTNET_FINDER=nest-finder-2.testnet
+NEXT_PUBLIC_TESTNET_STORE=nest-store-2.testnet
+NEXT_PUBLIC_TESTNET_REGISTRY=nest-registry-2.testnet
+NEXT_PUBLIC_TESTNET_IDENTIFIER_WHITELIST=nest-whitelist-1.testnet
+NEXT_PUBLIC_TESTNET_SLASHING_LIBRARY=nest-slashing-2.testnet
+```
+
+`NEXT_PUBLIC_INDEXER_URL` should point to your indexer instance.
+
+## Notes
+
+- `/app/vote` includes:
+  - NEST and collateral storage registration actions.
+  - Vault collateral deposit flow (`ft_transfer_call`) to mint NEST.
+- Wallet must be connected on testnet and signed-in account must have gas.
 
 ## Learn More about NEAR
 

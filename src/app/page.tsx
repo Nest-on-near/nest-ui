@@ -74,6 +74,40 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Build With Nest Oracle */}
+      <section className="py-24 border-y border-border bg-background-subtle/40">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl sm:text-4xl font-bold text-foreground">
+              What You Can Build with Nest Oracle
+            </h2>
+            <p className="mt-4 text-foreground-secondary max-w-3xl mx-auto">
+              An optimistic oracle can power far more than basic assertions. Prediction markets are
+              the most popular pattern, but Nest infrastructure can secure many real-world outcomes.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <UseCaseCard
+              title="Prediction Markets"
+              description="Resolve YES/NO and conditional markets with transparent on-chain outcomes backed by bonds and dispute resolution."
+            />
+            <UseCaseCard
+              title="Governance Outcome Verification"
+              description="Verify whether DAO and protocol governance actions were executed as proposed."
+            />
+            <UseCaseCard
+              title="Cultural Milestone Verification"
+              description="Determine whether a cultural event happened, like a public figure doing something unexpected."
+            />
+            <UseCaseCard
+              title="Reputation and Certification Systems"
+              description="Verify if someone completed an off-chain task or achieved a specific milestone."
+            />
+          </div>
+        </div>
+      </section>
+
       {/* Features Section */}
       <section className="py-24 bg-background-subtle">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -178,5 +212,20 @@ function FeatureItem({ text }: { text: string }) {
       <CheckCircle className="h-5 w-5 text-primary flex-shrink-0" />
       <span className="text-foreground-secondary">{text}</span>
     </li>
+  );
+}
+
+function UseCaseCard({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-surface p-6">
+      <h3 className="text-xl font-semibold text-foreground">{title}</h3>
+      <p className="mt-2 text-foreground-secondary">{description}</p>
+    </div>
   );
 }

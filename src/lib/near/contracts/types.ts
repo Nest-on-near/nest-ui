@@ -28,6 +28,17 @@ export interface DvmPriceRequest {
 
 /** Assertion view from oracle.get_assertion() */
 export interface OracleAssertionState {
+  asserter?: string;
+  disputer?: string | null;
+  callback_recipient?: string | null;
+  currency?: string;
+  bond?: string | number;
+  claim?: string;
+  expiration_time_ns?: string | number;
+  escalation_manager_settings?: {
+    escalation_manager?: string | null;
+    asserting_caller?: string;
+  };
   settled: boolean;
   settlement_pending: boolean;
   settlement_in_flight: boolean;

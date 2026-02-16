@@ -3,6 +3,7 @@
 import { Suspense, useState, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useNearWallet } from 'near-connect-hooks';
+import { useQuery } from '@tanstack/react-query';
 import {
   Clock,
   Vote,
@@ -28,11 +29,18 @@ import {
   parseTokenAmount,
 } from '@/lib/utils';
 import { decodeClaimForDisplay } from '@/lib/bytes32';
+import { bytes32ArrayToHex, hexToBytes32Array } from '@/lib/bytes32';
 import { useToast } from '@/components/ui/toast';
+import { DEFAULT_NETWORK, getContracts, getCurrencyConfig } from '@/lib/near/config';
+import { getDvmRequest, getDvmRequestId, getOracleAssertion } from '@/lib/near/contracts';
 import {
   useDisputedVotes,
   useDvmConfig,
   useVotingPower,
+  useTokenBalance,
+  useStorageRegistered,
+  useRegisterTokenStorage,
+  useDepositCollateralToVault,
   useStoredCommitments,
   useCommitVote,
   useRevealVote,
@@ -43,6 +51,7 @@ import {
   type DisputedVoteItem,
 } from '@/hooks/useContracts';
 import type { StoredVoteCommitment } from '@/lib/near/contracts';
+import type { IndexerAssertion } from '@/lib/api';
 
 const TRUE_PRICE_THRESHOLD = 1_000_000_000_000_000_000n;
 
@@ -60,6 +69,12 @@ function isTruePrice(price: string | number | null | undefined): boolean {
   }
 }
 
+function isHex32(value: string | null): value is string {
+  if (!value) return false;
+  const clean = value.replace(/^0x/, '');
+  return /^[0-9a-f]{64}$/i.test(clean);
+}
+
 export default function VotePage() {
   return (
     <Suspense fallback={<div className="text-sm text-foreground-muted">Loading vote context...</div>}>
@@ -70,11 +85,23 @@ export default function VotePage() {
 
 function VotePageContent() {
   const { signedAccountId } = useNearWallet();
+  const walletDisconnected = !signedAccountId;
   const searchParams = useSearchParams();
+  const contracts = getContracts(DEFAULT_NETWORK);
+  const collateralConfig = getCurrencyConfig(contracts.collateralToken, DEFAULT_NETWORK);
+  const collateralDecimals = collateralConfig?.decimals ?? 24;
+  const collateralSymbol = collateralConfig?.symbol ?? 'Collateral';
+  const [depositAmount, setDepositAmount] = useState('');
+  const { addToast } = useToast();
 
   const { data: disputedVotes, isLoading } = useDisputedVotes();
   const { data: dvmConfig } = useDvmConfig();
   const { data: votingPower } = useVotingPower();
+  const { data: collateralBalance } = useTokenBalance(contracts.collateralToken);
+  const { data: nestStorageRegistered } = useStorageRegistered(contracts.votingToken);
+  const { data: collateralStorageRegistered } = useStorageRegistered(contracts.collateralToken);
+  const registerStorageMutation = useRegisterTokenStorage();
+  const depositCollateralMutation = useDepositCollateralToVault();
   const { data: storedCommitments } = useStoredCommitments();
 
   const committedRequestIds = useMemo(() => {
@@ -99,6 +126,73 @@ function VotePageContent() {
       return assertionMatch && requestMatch;
     });
   }, [disputedVotes, assertionFilter, requestFilter]);
+
+  const { data: deepLinkedFallbackItem, isLoading: isFallbackLoading } = useQuery({
+    queryKey: ['vote-deep-link-fallback', assertionFilter, requestFilter],
+    enabled: !!assertionFilter && visibleVotes.length === 0 && isHex32(assertionFilter),
+    queryFn: async (): Promise<DisputedVoteItem | null> => {
+      if (!assertionFilter || !isHex32(assertionFilter)) {
+        return null;
+      }
+
+      const assertion = await getOracleAssertion(assertionFilter);
+      if (!assertion || !assertion.disputer) {
+        return null;
+      }
+
+      const requestId = requestFilter && isHex32(requestFilter)
+        ? hexToBytes32Array(requestFilter)
+        : await getDvmRequestId(assertionFilter);
+
+      const requestIdHex = requestId ? bytes32ArrayToHex(requestId).replace(/^0x/, '') : null;
+      const request = requestId ? await getDvmRequest(requestId).catch(() => null) : null;
+
+      if (requestFilter && requestIdHex && requestIdHex !== requestFilter) {
+        return null;
+      }
+
+      const synthesizedAssertion: IndexerAssertion = {
+        assertion_id: assertionFilter,
+        domain_id: '',
+        claim: typeof assertion.claim === 'string' ? assertion.claim : `0x${assertionFilter}`,
+        asserter: assertion.asserter ?? 'unknown',
+        callback_recipient: assertion.callback_recipient ?? null,
+        escalation_manager: assertion.escalation_manager_settings?.escalation_manager ?? null,
+        caller: assertion.escalation_manager_settings?.asserting_caller ?? 'unknown',
+        expiration_time_ns: String(assertion.expiration_time_ns ?? '0'),
+        currency: assertion.currency ?? contracts.collateralToken,
+        bond: String(assertion.bond ?? '0'),
+        identifier: '',
+        disputer: assertion.disputer ?? null,
+        settled: Boolean(assertion.settled),
+        settlement_pending: Boolean(assertion.settlement_pending),
+        settlement_in_flight: Boolean(assertion.settlement_in_flight),
+        settlement_resolution: Boolean(assertion.settlement_resolution),
+        bond_recipient: null,
+        status: assertion.settled
+          ? assertion.settlement_resolution ? 'settled_true' : 'settled_false'
+          : assertion.disputer ? 'disputed' : 'active',
+        created_at: Date.now(),
+        updated_at: Date.now(),
+        block_height: 0,
+        transaction_id: '',
+      };
+
+      return {
+        assertion: synthesizedAssertion,
+        dvmRequestId: requestId,
+        dvmRequestIdHex: requestIdHex,
+        dvmRequest: request,
+      };
+    },
+    staleTime: 10000,
+    refetchInterval: 15000,
+  });
+
+  const renderedVotes = useMemo(() => {
+    if (visibleVotes.length > 0) return visibleVotes;
+    return deepLinkedFallbackItem ? [deepLinkedFallbackItem] : [];
+  }, [visibleVotes, deepLinkedFallbackItem]);
 
   return (
     <div className="space-y-6">
@@ -125,6 +219,147 @@ function VotePageContent() {
                   : '—'}
               </p>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Vault Deposit */}
+      <Card>
+        <CardContent className="p-6 space-y-4">
+          <div>
+            <p className="text-sm text-foreground-muted">Get NEST from Vault</p>
+            <p className="text-sm text-foreground-secondary mt-1">
+              Register storage once, then deposit {collateralSymbol} into the vault to mint NEST 1:1.
+            </p>
+          </div>
+          <div className="text-xs text-foreground-muted space-y-1">
+            <p>Collateral token: <span className="font-mono">{contracts.collateralToken}</span></p>
+            <p>Vault: <span className="font-mono">{contracts.vault}</span></p>
+          </div>
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+            <div>
+              <span className="text-foreground-muted">Your {collateralSymbol}: </span>
+              <span className="font-medium">
+                {signedAccountId && collateralBalance
+                  ? formatTokenAmount(collateralBalance, collateralDecimals)
+                  : '—'}
+              </span>
+            </div>
+            <div>
+              <span className="text-foreground-muted">NEST storage: </span>
+              <Badge variant={nestStorageRegistered ? 'success' : 'warning'}>
+                {nestStorageRegistered ? 'Registered' : 'Missing'}
+              </Badge>
+            </div>
+            <div>
+              <span className="text-foreground-muted">{collateralSymbol} storage: </span>
+              <Badge variant={collateralStorageRegistered ? 'success' : 'warning'}>
+                {collateralStorageRegistered ? 'Registered' : 'Missing'}
+              </Badge>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={
+                walletDisconnected || !!nestStorageRegistered || registerStorageMutation.isPending
+              }
+              loading={registerStorageMutation.isPending}
+              onClick={async () => {
+                try {
+                  await registerStorageMutation.mutateAsync({ tokenContractId: contracts.votingToken });
+                  addToast({
+                    type: 'success',
+                    title: 'NEST storage registered',
+                    message: 'Your account is ready to receive minted NEST.',
+                  });
+                } catch (err) {
+                  addToast({
+                    type: 'error',
+                    title: 'Storage registration failed',
+                    message: (err as Error).message,
+                  });
+                }
+              }}
+            >
+              Register NEST Storage
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={
+                walletDisconnected ||
+                !!collateralStorageRegistered ||
+                registerStorageMutation.isPending
+              }
+              loading={registerStorageMutation.isPending}
+              onClick={async () => {
+                try {
+                  await registerStorageMutation.mutateAsync({
+                    tokenContractId: contracts.collateralToken,
+                  });
+                  addToast({
+                    type: 'success',
+                    title: `${collateralSymbol} storage registered`,
+                    message: 'Your account can now hold and transfer collateral.',
+                  });
+                } catch (err) {
+                  addToast({
+                    type: 'error',
+                    title: 'Storage registration failed',
+                    message: (err as Error).message,
+                  });
+                }
+              }}
+            >
+              Register {collateralSymbol} Storage
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <input
+              className="h-9 rounded-md border border-border px-3 text-sm bg-background min-w-[220px]"
+              type="number"
+              min="0"
+              step="0.0001"
+              placeholder={`Deposit ${collateralSymbol} amount`}
+              value={depositAmount}
+              onChange={(e) => setDepositAmount(e.target.value)}
+              disabled={walletDisconnected || depositCollateralMutation.isPending}
+            />
+            <Button
+              size="sm"
+              disabled={
+                walletDisconnected ||
+                depositCollateralMutation.isPending ||
+                !nestStorageRegistered ||
+                !collateralStorageRegistered
+              }
+              loading={depositCollateralMutation.isPending}
+              onClick={async () => {
+                try {
+                  const amountRaw = parseTokenAmount(depositAmount, collateralDecimals);
+                  if (BigInt(amountRaw) <= 0n) {
+                    throw new Error('Amount must be greater than 0');
+                  }
+                  await depositCollateralMutation.mutateAsync({ amountRaw });
+                  setDepositAmount('');
+                  addToast({
+                    type: 'success',
+                    title: 'Collateral deposited',
+                    message: 'NEST mint transaction submitted via vault.',
+                  });
+                } catch (err) {
+                  addToast({
+                    type: 'error',
+                    title: 'Deposit failed',
+                    message: (err as Error).message,
+                  });
+                }
+              }}
+            >
+              Deposit to Vault
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -156,6 +391,11 @@ function VotePageContent() {
         <Card>
           <CardContent className="p-4 text-sm text-foreground-secondary">
             Showing filtered vote context from deep link.
+            {deepLinkedFallbackItem && (
+              <p className="mt-2 text-xs text-amber-700">
+                Indexer did not return this dispute yet. Showing on-chain fallback data.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -164,21 +404,27 @@ function VotePageContent() {
       {!isLoading && (
         <div>
           <h2 className="text-lg font-semibold text-foreground mb-4">
-            Disputed Assertions ({visibleVotes.length})
+            Disputed Assertions ({renderedVotes.length})
           </h2>
 
-          {visibleVotes.length === 0 ? (
+          {renderedVotes.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
-                <CheckCircle2 className="h-12 w-12 mx-auto text-success mb-4" />
+                {isFallbackLoading ? (
+                  <Loader2 className="h-12 w-12 mx-auto text-primary mb-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-12 w-12 mx-auto text-success mb-4" />
+                )}
                 <p className="text-foreground-secondary">
-                  No disputed assertions match this filter.
+                  {isFallbackLoading
+                    ? 'Looking up linked dispute on-chain...'
+                    : 'No disputed assertions match this filter.'}
                 </p>
               </CardContent>
             </Card>
           ) : (
             <div className="space-y-4">
-              {visibleVotes.map((item) => {
+              {renderedVotes.map((item) => {
                 const isCommitted = item.dvmRequestIdHex
                   ? committedRequestIds.has(item.dvmRequestIdHex)
                   : false;

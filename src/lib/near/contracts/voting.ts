@@ -9,6 +9,7 @@ const RPC_URL =
   DEFAULT_NETWORK === 'mainnet'
     ? 'https://rpc.mainnet.near.org'
     : 'https://test.rpc.fastnear.com';
+const STORAGE_DEPOSIT_YOCTO = '10000000000000000000000'; // 0.01 NEAR
 
 /**
  * Generic NEAR RPC view call helper
@@ -93,6 +94,24 @@ export async function getTokenBalance(
   accountId: string
 ): Promise<string> {
   return viewCall(tokenContractId, 'ft_balance_of', {
+    account_id: accountId,
+  });
+}
+
+type StorageBalance = {
+  total: string;
+  available: string;
+};
+
+/**
+ * Get storage balance for a token account.
+ * Returns null when account is not registered.
+ */
+export async function getStorageBalanceOf(
+  tokenContractId: string,
+  accountId: string
+): Promise<StorageBalance | null> {
+  return viewCall<StorageBalance | null>(tokenContractId, 'storage_balance_of', {
     account_id: accountId,
   });
 }
@@ -217,5 +236,43 @@ export function resolvePrice(requestId: number[]) {
     args: { request_id: requestId },
     gas: '200000000000000', // 200 TGas
     deposit: '0',
+  };
+}
+
+/**
+ * Register storage on a token contract for the signed account.
+ */
+export function storageDeposit(
+  tokenContractId: string,
+  accountId: string
+) {
+  return {
+    contractId: tokenContractId,
+    method: 'storage_deposit',
+    args: {
+      account_id: accountId,
+      registration_only: true,
+    },
+    gas: '30000000000000', // 30 TGas
+    deposit: STORAGE_DEPOSIT_YOCTO,
+  };
+}
+
+/**
+ * Deposit collateral into the vault to mint NEST 1:1.
+ */
+export function depositCollateralToVault(amountRaw: string) {
+  return {
+    contractId: contracts.collateralToken,
+    method: 'ft_transfer_call',
+    args: {
+      receiver_id: contracts.vault,
+      amount: amountRaw,
+      msg: JSON.stringify({
+        action: 'DepositCollateral',
+      }),
+    },
+    gas: '120000000000000', // 120 TGas
+    deposit: '1',
   };
 }
