@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { Suspense, useState, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useNearWallet } from 'near-connect-hooks';
 import {
@@ -14,6 +14,7 @@ import {
   FastForward,
   Gavel,
   Scale,
+  RotateCcw,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,7 @@ import {
   useAdvanceToReveal,
   useResolvePrice,
   useSettleAfterDvm,
+  useRetrySettlementPayout,
   type DisputedVoteItem,
 } from '@/hooks/useContracts';
 import type { StoredVoteCommitment } from '@/lib/near/contracts';
@@ -59,6 +61,14 @@ function isTruePrice(price: string | number | null | undefined): boolean {
 }
 
 export default function VotePage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-foreground-muted">Loading vote context...</div>}>
+      <VotePageContent />
+    </Suspense>
+  );
+}
+
+function VotePageContent() {
   const { signedAccountId } = useNearWallet();
   const searchParams = useSearchParams();
 
@@ -253,11 +263,15 @@ function VoteCard({
   const advanceMutation = useAdvanceToReveal();
   const resolveMutation = useResolvePrice();
   const settleMutation = useSettleAfterDvm();
+  const retrySettlementMutation = useRetrySettlementPayout();
   const { addToast } = useToast();
 
   const { assertion, dvmRequestId, dvmRequestIdHex, dvmRequest } = item;
   const claimText = decodeClaimForDisplay(assertion.claim);
   const phase = dvmRequest?.phase || null;
+  const settlementPending = assertion.settlement_pending;
+  const settlementInFlight = assertion.settlement_in_flight;
+  const canRetrySettlement = settlementPending && !settlementInFlight;
 
   // Compute phase timing
   const now = Date.now();
@@ -392,12 +406,32 @@ function VoteCard({
   const handleResolve = async () => {
     if (!dvmRequestId) return;
     try {
-      await resolveMutation.mutateAsync({ requestId: dvmRequestId });
-      addToast({
-        type: 'success',
-        title: 'Vote resolved',
-        message: 'The DVM has reached a decision. You can now settle.',
-      });
+      const outcome = await resolveMutation.mutateAsync({ requestId: dvmRequestId });
+      if (outcome === 'Resolved') {
+        addToast({
+          type: 'success',
+          title: 'Vote resolved',
+          message: 'The DVM has reached a decision. You can now settle.',
+        });
+      } else if (outcome === 'RevealExtended') {
+        addToast({
+          type: 'warning',
+          title: 'Reveal phase extended',
+          message: 'Participation was low, so reveal was extended.',
+        });
+      } else if (outcome === 'EmergencyRequired') {
+        addToast({
+          type: 'warning',
+          title: 'Emergency resolution required',
+          message: 'Participation remained low. Use emergency resolve path.',
+        });
+      } else {
+        addToast({
+          type: 'success',
+          title: 'Resolve transaction submitted',
+          message: 'State updated. Refreshing request status.',
+        });
+      }
     } catch (err) {
       addToast({
         type: 'error',
@@ -409,18 +443,45 @@ function VoteCard({
 
   const handleSettle = async () => {
     try {
-      await settleMutation.mutateAsync({
+      const result = await settleMutation.mutateAsync({
         assertionId: assertion.assertion_id,
       });
-      addToast({
-        type: 'success',
-        title: 'Assertion settled',
-        message: 'Bonds have been distributed based on the vote result.',
-      });
+      if (result.settlementPending) {
+        addToast({
+          type: 'success',
+          title: 'Settlement initiated',
+          message: 'Payout callback is in progress. Final settled state will update shortly.',
+        });
+      } else {
+        addToast({
+          type: 'success',
+          title: 'Assertion settled',
+          message: 'Assertion appears finalized on-chain.',
+        });
+      }
     } catch (err) {
       addToast({
         type: 'error',
         title: 'Settle failed',
+        message: (err as Error).message,
+      });
+    }
+  };
+
+  const handleRetrySettlement = async () => {
+    try {
+      await retrySettlementMutation.mutateAsync({
+        assertionId: assertion.assertion_id,
+      });
+      addToast({
+        type: 'success',
+        title: 'Settlement retry submitted',
+        message: 'Retrying settlement payout callback.',
+      });
+    } catch (err) {
+      addToast({
+        type: 'error',
+        title: 'Retry failed',
         message: (err as Error).message,
       });
     }
@@ -542,7 +603,27 @@ function VoteCard({
                         dvmRequest?.resolved_price !== undefined &&
                         ` — ${isTruePrice(dvmRequest.resolved_price) ? 'TRUE' : 'FALSE'}`}
                     </span>
-                    {!assertion.settled && (
+                    {settlementPending ? (
+                      <>
+                        <span className="text-xs text-foreground-muted">
+                          {settlementInFlight
+                            ? 'Settlement pending payout callback'
+                            : 'Settlement pending (retry available)'}
+                        </span>
+                        {canRetrySettlement && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleRetrySettlement}
+                            disabled={disabled || retrySettlementMutation.isPending}
+                            loading={retrySettlementMutation.isPending}
+                          >
+                            <RotateCcw className="h-4 w-4 mr-1.5" />
+                            Retry Settlement
+                          </Button>
+                        )}
+                      </>
+                    ) : !assertion.settled && (
                       <Button
                         size="sm"
                         onClick={handleSettle}
@@ -655,15 +736,37 @@ function VoteCard({
                     ` — ${isTruePrice(dvmRequest.resolved_price) ? 'TRUE' : 'FALSE'}`}
                 </span>
                 {!assertion.settled && (
-                  <Button
-                    size="sm"
-                    onClick={handleSettle}
-                    disabled={disabled || settleMutation.isPending}
-                    loading={settleMutation.isPending}
-                  >
-                    <Scale className="h-4 w-4 mr-1.5" />
-                    Settle
-                  </Button>
+                  settlementPending ? (
+                    <>
+                      <span className="text-xs text-foreground-muted">
+                        {settlementInFlight
+                          ? 'Settlement pending payout callback'
+                          : 'Settlement pending (retry available)'}
+                      </span>
+                      {canRetrySettlement && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleRetrySettlement}
+                          disabled={disabled || retrySettlementMutation.isPending}
+                          loading={retrySettlementMutation.isPending}
+                        >
+                          <RotateCcw className="h-4 w-4 mr-1.5" />
+                          Retry Settlement
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={handleSettle}
+                      disabled={disabled || settleMutation.isPending}
+                      loading={settleMutation.isPending}
+                    >
+                      <Scale className="h-4 w-4 mr-1.5" />
+                      Settle
+                    </Button>
+                  )
                 )}
               </div>
             ) : (

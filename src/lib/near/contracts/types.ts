@@ -2,6 +2,11 @@
 
 export type DvmVotingPhase = 'Commit' | 'Reveal' | 'Resolved';
 export type DvmRequestStatus = 'Pending' | 'Active' | 'Resolved';
+export type DvmResolvePriceOutcome =
+  | 'Resolved'
+  | 'RevealExtended'
+  | 'EmergencyRequired'
+  | 'Unknown';
 
 /** PriceRequest from the DVM voting contract */
 export interface DvmPriceRequest {
@@ -16,6 +21,17 @@ export interface DvmPriceRequest {
   /** Nanoseconds since epoch (0 if not yet in reveal) */
   reveal_start_time: number;
   resolved_price: string | number | null;
+  revealed_stake?: string | number;
+  low_participation_extensions?: number;
+  emergency_required?: boolean;
+}
+
+/** Assertion view from oracle.get_assertion() */
+export interface OracleAssertionState {
+  settled: boolean;
+  settlement_pending: boolean;
+  settlement_in_flight: boolean;
+  settlement_resolution: boolean;
 }
 
 /** DVM configuration from get_config() */

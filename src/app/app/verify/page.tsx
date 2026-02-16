@@ -3,7 +3,15 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNearWallet } from 'near-connect-hooks';
-import { Search, Filter, Clock, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
+import {
+  Search,
+  Filter,
+  Clock,
+  AlertTriangle,
+  CheckCircle,
+  Loader2,
+  RotateCcw,
+} from 'lucide-react';
 
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -15,7 +23,11 @@ import { formatAccountId, formatRelativeTime, formatTokenAmount, nsToMs } from '
 import { decodeBytes32, decodeClaimForDisplay } from '@/lib/bytes32';
 import { getCurrencies, DEFAULT_NETWORK } from '@/lib/near/config';
 import { fetchAssertions, IndexerAssertion } from '@/lib/api';
-import { useDisputeAssertion, useSettleAssertion } from '@/hooks/useContracts';
+import {
+  useDisputeAssertion,
+  useSettleAssertion,
+  useRetrySettlementPayout,
+} from '@/hooks/useContracts';
 import { DisputeDialog } from '@/components/dispute-dialog';
 import { useToast } from '@/components/ui/toast';
 
@@ -81,6 +93,7 @@ export default function VerifyPage() {
           <option value="all">All Status</option>
           <option value="active">Active</option>
           <option value="disputed">Disputed</option>
+          <option value="pending_settlement">Pending Settlement</option>
           <option value="expired">Expired</option>
         </Select>
         <Select
@@ -145,6 +158,7 @@ function AssertionCard({ assertion }: { assertion: IndexerAssertion }) {
   const { signedAccountId } = useNearWallet();
   const disputeMutation = useDisputeAssertion();
   const settleMutation = useSettleAssertion();
+  const retrySettlementMutation = useRetrySettlementPayout();
   const { addToast } = useToast();
   const [showDisputeConfirm, setShowDisputeConfirm] = useState(false);
 
@@ -153,10 +167,14 @@ function AssertionCard({ assertion }: { assertion: IndexerAssertion }) {
   const claimText = decodeClaimForDisplay(assertion.claim);
   const expirationMs = nsToMs(assertion.expiration_time_ns);
   const isExpired = expirationMs < Date.now();
+  const settlementPending = assertion.settlement_pending;
+  const settlementInFlight = assertion.settlement_in_flight;
+  const canRetrySettlement = settlementPending && !settlementInFlight;
 
   const statusConfig = {
     active: { color: 'success' as const, label: 'Active', icon: Clock },
     disputed: { color: 'warning' as const, label: 'Disputed', icon: AlertTriangle },
+    pending_settlement: { color: 'warning' as const, label: 'Pending Settlement', icon: Clock },
     expired: { color: 'muted' as const, label: 'Expired', icon: CheckCircle },
     settled_true: { color: 'success' as const, label: 'Settled True', icon: CheckCircle },
     settled_false: { color: 'error' as const, label: 'Settled False', icon: CheckCircle },
@@ -182,9 +200,26 @@ function AssertionCard({ assertion }: { assertion: IndexerAssertion }) {
   const handleSettle = async () => {
     try {
       await settleMutation.mutateAsync({ assertionId: assertion.assertion_id });
-      addToast({ type: 'success', title: 'Assertion settled', message: 'The assertion has been settled.' });
+      addToast({
+        type: 'success',
+        title: 'Settlement initiated',
+        message: 'Payout callback is in progress. Final settled state will update shortly.',
+      });
     } catch (err) {
       addToast({ type: 'error', title: 'Settle failed', message: (err as Error).message });
+    }
+  };
+
+  const handleRetrySettlement = async () => {
+    try {
+      await retrySettlementMutation.mutateAsync({ assertionId: assertion.assertion_id });
+      addToast({
+        type: 'success',
+        title: 'Settlement retry submitted',
+        message: 'Retrying settlement payout callback.',
+      });
+    } catch (err) {
+      addToast({ type: 'error', title: 'Retry failed', message: (err as Error).message });
     }
   };
 
@@ -245,6 +280,14 @@ function AssertionCard({ assertion }: { assertion: IndexerAssertion }) {
                 {status.label}
               </Badge>
 
+              {settlementPending && (
+                <span className="text-xs text-foreground-muted">
+                  {settlementInFlight
+                    ? 'Settlement pending payout callback'
+                    : 'Settlement pending (retry available)'}
+                </span>
+              )}
+
               {assertion.status === 'active' && (
                 <Button
                   size="sm"
@@ -256,18 +299,47 @@ function AssertionCard({ assertion }: { assertion: IndexerAssertion }) {
                 </Button>
               )}
               {assertion.status === 'expired' && (
+                settlementPending ? (
+                  canRetrySettlement ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRetrySettlement}
+                      disabled={!signedAccountId || retrySettlementMutation.isPending}
+                      loading={retrySettlementMutation.isPending}
+                    >
+                      <RotateCcw className="h-4 w-4 mr-1.5" />
+                      Retry Settlement
+                    </Button>
+                  ) : null
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    onClick={handleSettle}
+                    disabled={!signedAccountId || settleMutation.isPending}
+                    loading={settleMutation.isPending}
+                  >
+                    Settle
+                  </Button>
+                )
+              )}
+              {assertion.status === 'pending_settlement' && canRetrySettlement && (
                 <Button
                   size="sm"
-                  variant="primary"
-                  onClick={handleSettle}
-                  disabled={!signedAccountId || settleMutation.isPending}
-                  loading={settleMutation.isPending}
+                  variant="outline"
+                  onClick={handleRetrySettlement}
+                  disabled={!signedAccountId || retrySettlementMutation.isPending}
+                  loading={retrySettlementMutation.isPending}
                 >
-                  Settle
+                  <RotateCcw className="h-4 w-4 mr-1.5" />
+                  Retry Settlement
                 </Button>
               )}
               {assertion.status === 'disputed' && (
-                <span className="text-xs text-foreground-muted">Pending DVM Vote</span>
+                <span className="text-xs text-foreground-muted">
+                  {settlementPending ? 'Settlement in progress' : 'Pending DVM Vote'}
+                </span>
               )}
             </div>
           </div>

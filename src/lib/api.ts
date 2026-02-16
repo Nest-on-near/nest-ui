@@ -16,9 +16,17 @@ export interface IndexerAssertion {
   identifier: string;
   disputer: string | null;
   settled: boolean;
+  settlement_pending: boolean;
+  settlement_in_flight: boolean;
   settlement_resolution: boolean;
   bond_recipient: string | null;
-  status: 'active' | 'disputed' | 'expired' | 'settled_true' | 'settled_false';
+  status:
+    | 'active'
+    | 'disputed'
+    | 'pending_settlement'
+    | 'expired'
+    | 'settled_true'
+    | 'settled_false';
   created_at: number;
   updated_at: number;
   block_height: number;
@@ -43,6 +51,8 @@ export interface AssertionQuery {
   asserter?: string;
   disputer?: string;
   currency?: string;
+  settlement_pending?: boolean;
+  settlement_in_flight?: boolean;
   page?: number;
   per_page?: number;
 }
@@ -53,6 +63,12 @@ export async function fetchAssertions(query?: AssertionQuery): Promise<Assertion
   if (query?.asserter) params.set('asserter', query.asserter);
   if (query?.disputer) params.set('disputer', query.disputer);
   if (query?.currency) params.set('currency', query.currency);
+  if (query?.settlement_pending !== undefined) {
+    params.set('settlement_pending', String(query.settlement_pending));
+  }
+  if (query?.settlement_in_flight !== undefined) {
+    params.set('settlement_in_flight', String(query.settlement_in_flight));
+  }
   if (query?.page) params.set('page', query.page.toString());
   if (query?.per_page) params.set('per_page', query.per_page.toString());
 

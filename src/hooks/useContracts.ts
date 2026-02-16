@@ -15,6 +15,8 @@ import {
   resolvePrice,
   disputeAssertion,
   settleAssertion,
+  retrySettlementPayout,
+  getOracleAssertion,
   storeCommitment,
   getStoredCommitments,
   getCommitmentForRequest,
@@ -22,7 +24,12 @@ import {
   DVM_TRUE_PRICE,
   DVM_FALSE_PRICE,
 } from '@/lib/near/contracts';
-import type { StoredVoteCommitment, DvmPriceRequest } from '@/lib/near/contracts';
+import type {
+  StoredVoteCommitment,
+  DvmPriceRequest,
+  DvmResolvePriceOutcome,
+  OracleAssertionState,
+} from '@/lib/near/contracts';
 import { fetchAssertions, type IndexerAssertion } from '@/lib/api';
 import { bytes32ArrayToHex } from '@/lib/bytes32';
 
@@ -34,6 +41,8 @@ export const contractKeys = {
     ['storedCommitments', accountId] as const,
   disputedVotes: ['disputed-votes'] as const,
   dvmConfig: ['dvm-config'] as const,
+  oracleAssertion: (assertionId: string) =>
+    ['oracle-assertion', assertionId] as const,
 };
 
 // ==================== Disputed Votes (Indexer + DVM) ====================
@@ -54,13 +63,15 @@ export function useDisputedVotes() {
   return useQuery({
     queryKey: contractKeys.disputedVotes,
     queryFn: async (): Promise<DisputedVoteItem[]> => {
-      const { assertions } = await fetchAssertions({
-        status: 'disputed',
-        per_page: 100,
-      });
+      const { assertions } = await fetchAssertions({ per_page: 100 });
+      const votingAssertions = assertions.filter(
+        (a) =>
+          (a.status === 'disputed' || a.status === 'pending_settlement') &&
+          a.disputer !== null
+      );
 
       const items = await Promise.all(
-        assertions.map(async (assertion) => {
+        votingAssertions.map(async (assertion) => {
           try {
             const dvmRequestId = await getDvmRequestId(
               assertion.assertion_id
@@ -172,8 +183,42 @@ export function useSettleAssertion() {
       const txArgs = settleAssertion(assertionId);
       return callFunction(txArgs);
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['assertions'] });
+      queryClient.invalidateQueries({
+        queryKey: contractKeys.oracleAssertion(variables.assertionId),
+      });
+    },
+  });
+}
+
+export function useOracleAssertion(assertionId: string) {
+  return useQuery({
+    queryKey: contractKeys.oracleAssertion(assertionId),
+    queryFn: () => getOracleAssertion(assertionId),
+    enabled: !!assertionId,
+    refetchInterval: 10000,
+    staleTime: 5000,
+  });
+}
+
+export function useRetrySettlementPayout() {
+  const { callFunction } = useNearWallet();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ assertionId }: { assertionId: string }) => {
+      const txArgs = retrySettlementPayout(assertionId);
+      return callFunction(txArgs);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['assertions'] });
+      queryClient.invalidateQueries({
+        queryKey: contractKeys.disputedVotes,
+      });
+      queryClient.invalidateQueries({
+        queryKey: contractKeys.oracleAssertion(variables.assertionId),
+      });
     },
   });
 }
@@ -314,7 +359,19 @@ export function useResolvePrice() {
   return useMutation({
     mutationFn: async ({ requestId }: { requestId: number[] }) => {
       const txArgs = resolvePrice(requestId);
-      return callFunction(txArgs);
+      await callFunction(txArgs);
+      const updatedRequest = await getDvmRequest(requestId).catch(() => null);
+      if (!updatedRequest) return 'Unknown' as DvmResolvePriceOutcome;
+      if (updatedRequest.phase === 'Resolved') {
+        return 'Resolved' as DvmResolvePriceOutcome;
+      }
+      if (updatedRequest.emergency_required) {
+        return 'EmergencyRequired' as DvmResolvePriceOutcome;
+      }
+      if (updatedRequest.phase === 'Reveal') {
+        return 'RevealExtended' as DvmResolvePriceOutcome;
+      }
+      return 'Unknown' as DvmResolvePriceOutcome;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -335,12 +392,20 @@ export function useSettleAfterDvm() {
   return useMutation({
     mutationFn: async ({ assertionId }: { assertionId: string }) => {
       const txArgs = settleAssertion(assertionId);
-      return callFunction(txArgs);
+      await callFunction(txArgs);
+      const updatedAssertion: OracleAssertionState | null =
+        await getOracleAssertion(assertionId).catch(() => null);
+      return {
+        settlementPending: !!updatedAssertion?.settlement_pending,
+      };
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['assertions'] });
       queryClient.invalidateQueries({
         queryKey: contractKeys.disputedVotes,
+      });
+      queryClient.invalidateQueries({
+        queryKey: contractKeys.oracleAssertion(variables.assertionId),
       });
     },
   });

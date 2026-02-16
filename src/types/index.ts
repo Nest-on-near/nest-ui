@@ -13,6 +13,8 @@ export interface Assertion {
   asserter: string;
   assertion_time_ns: string; // U64 as string
   settled: boolean;
+  settlement_pending: boolean;
+  settlement_in_flight: boolean;
   currency: string;
   expiration_time_ns: string; // U64 as string
   settlement_resolution: boolean;
@@ -27,6 +29,7 @@ export interface Assertion {
 export type AssertionStatus =
   | 'active'        // Can be disputed
   | 'disputed'      // Waiting for DVM vote
+  | 'pending_settlement' // Settlement initiated, awaiting payout callback/retry
   | 'expired'       // Liveness passed, can be settled
   | 'settled_true'  // Settled as true
   | 'settled_false'; // Settled as false
