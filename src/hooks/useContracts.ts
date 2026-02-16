@@ -15,7 +15,6 @@ import {
   advanceToReveal,
   resolvePrice,
   storageDeposit,
-  depositCollateralToVault,
   disputeAssertion,
   settleAssertion,
   retrySettlementPayout,
@@ -36,7 +35,6 @@ import type {
 } from '@/lib/near/contracts';
 import { fetchAssertions, type IndexerAssertion } from '@/lib/api';
 import { bytes32ArrayToHex } from '@/lib/bytes32';
-import { getContracts, DEFAULT_NETWORK } from '@/lib/near/config';
 
 // ==================== Query Keys ====================
 
@@ -179,35 +177,6 @@ export function useRegisterTokenStorage() {
       });
       queryClient.invalidateQueries({
         queryKey: contractKeys.tokenBalance(variables.tokenContractId, signedAccountId),
-      });
-    },
-  });
-}
-
-export function useDepositCollateralToVault() {
-  const { signedAccountId, callFunction } = useNearWallet();
-  const queryClient = useQueryClient();
-  const contracts = getContracts(DEFAULT_NETWORK);
-
-  return useMutation({
-    mutationFn: async ({ amountRaw }: { amountRaw: string }) => {
-      if (!signedAccountId) throw new Error('Wallet not connected');
-      if (BigInt(amountRaw) <= 0n) {
-        throw new Error('Amount must be greater than 0');
-      }
-      const txArgs = depositCollateralToVault(amountRaw);
-      return callFunction(txArgs);
-    },
-    onSuccess: () => {
-      if (!signedAccountId) return;
-      queryClient.invalidateQueries({
-        queryKey: contractKeys.votingPower(signedAccountId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: contractKeys.tokenBalance(contracts.collateralToken, signedAccountId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: contractKeys.tokenBalance(contracts.votingToken, signedAccountId),
       });
     },
   });

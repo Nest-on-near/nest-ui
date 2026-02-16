@@ -1,74 +1,139 @@
-`nest-ui` is the frontend for the NEST oracle + DVM flow.
+# Nest - Optimistic Oracle on Near
 
-## Getting Started
+Nest is an optimistic oracle on NEAR that lets anyone post claims, challenge incorrect claims, and resolve disputes through a token-weighted verification mechanism.
 
-First, run the development server:
+Nest is a modular truth-resolution layer for NEAR. It combines an Optimistic Oracle (fast assertions with bonded liveness windows), optional escalation policies, and a DVM-style dispute process for objective settlement when claims are contested. The project includes smart contracts, indexers, and a frontend so teams can run the full flow end-to-end: propose -> dispute -> vote -> settle.
+
+## What Problem Nest Solves
+
+Smart contracts are excellent at enforcing logic, but weak at deciding truth about events that happen outside the chain. Most applications either:
+
+- trust a centralized backend,
+- depend on narrow API-integrated data sources, or
+- ship without a robust dispute process.
+
+Nest solves this by giving NEAR apps a generalized truth-resolution mechanism:
+
+- anyone can assert a claim with economic skin in the game (bond),
+- anyone can challenge that claim within a liveness window,
+- disputes are resolved through token-weighted voting and settlement rules.
+
+This lets builders bring a much wider class of real-world and cross-domain data onchain with accountable, economically secured resolution.
+
+## This is the flow of an Optimistic Oracle
+
+Before going deeper, here is the core Optimistic Oracle flow in simple terms.
+
+1. A user submits an assertion (a claim) and posts a bond in fungible tokens.
+2. The claim is treated as true by default during a liveness window unless challenged.
+3. If another user disagrees, they can dispute by posting a matching bond.
+4. Once disputed, the claim is escalated to NEST token holders, who vote on whether the assertion is true or false.
+5. Settlement distributes economic outcomes:
+   - The winning side receives a reward from the losing side's bond.
+   - The protocol treasury receives the configured remainder/fees.
+6. Voters are economically aligned:
+   - Correct votes are rewarded.
+   - Incorrect votes can be penalized (slashed).
+
+This design gives fast default resolution for uncontested claims, and strong economic/finality guarantees when claims are contested.
+
+```mermaid
+flowchart TD
+    A["Asserter submits claim\n+ posts bond"] --> B{Disputed?}
+
+    B -- No --> C["Assertion accepted as TRUE\nafter challenge window"]
+    B -- Yes --> D["Disputer matches bond"]
+
+    D --> E["NEST token holders vote\nTRUE or FALSE"]
+    E --> F{Vote outcome}
+
+    F -- TRUE --> G["Asserter wins\ngets 50% of disputer bond"]
+    F -- FALSE --> H["Disputer wins\ngets 50% of asserter bond"]
+
+    G --> I["Remaining 50% → Treasury"]
+    H --> I
+
+    E --> J["Voter incentives"]
+    J --> K["Correct vote → reward"]
+    J --> L["Incorrect vote → slash"]
+
+    C --> M["Final trusted outcome"]
+    I --> M
+    K --> M
+    L --> M
+
+```
+## Understanding all the cogs of the mechanism 
+
+Nest is split into four repos that map directly to product, protocol, data, and real usage.
+
+1. `nest-ui` (this repo)  
+   Frontend for the full oracle lifecycle: create assertions, monitor liveness, dispute claims, participate in voting-related flows, and trigger settlement actions. Visit this first to understand user experience and to run a live demo quickly.
+
+2. [`nest-contracts`](https://github.com/Nest-on-near/nest-contracts)  
+   Core protocol contracts: Optimistic Oracle, voting/DVM, token economics, registry/finder, and settlement logic. Visit this to understand trust guarantees, economic rules, and how disputes are resolved onchain.
+
+3. [`nest-indexer`](https://github.com/Nest-on-near/nest-indexer)  
+   Event ingestion and query layer for assertions/disputes/settlements, exposed through API endpoints used by the UI. Visit this if you want to inspect data flow, API behavior, or debug state transitions in real time.
+
+4. [`nest-markets`](https://github.com/Nest-on-near/nest-markets)  
+   A concrete integration that uses Nest in a prediction-market context. Visit this to see why Nest matters in practice: objective market resolution, challenge windows, and verifiable outcomes for real applications.
+
+## Design Choices
+
+- **Optimistic assertions instead of hard-coded API-only feeds**  
+ While building the Oracle the main concern or thought that comes to one's mind is why not YIELD AND RESUME? The answer .. it only allows actions through APIs. APIs can only cover such a wide domain, at the end of the day an Optimistic Oracle can be used to assert ANY type of data.
+
+- **Challenge-window first, committee only when needed**  
+  Most claims are expected to be uncontested, so default acceptance after liveness gives low-latency and low-cost resolution. Dispute voting is triggered only when someone is willing to economically challenge a claim.
+
+- **Economic security over centralized moderation**  
+  Bonds, rewards, treasury routing, and slashing align participants financially. Instead of trusting a single operator to approve truth, the protocol makes incorrect behavior expensive.
+
+- **Modular architecture (UI, contracts, indexer, integrations)**  
+  Product surface, onchain logic, data indexing, and application integrations are separated across repos. This keeps each layer simpler to reason about and allows independent iteration.
+
+- **Indexer-backed UX for fast state visibility**  
+  UI reads from indexer APIs for responsive query/filter experiences, while final correctness still comes from onchain contract state. This gives better developer and user ergonomics without compromising settlement authority.
+
+## Run Locally
+
+### Prerequisites
+
+- Node.js `>=18`
+- Rust toolchain (`cargo`)
+- A NEAR testnet wallet account with enough gas
+
+### 1. Start the Oracle Indexer
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd ../nest-indexer
+cp .env.example .env
+cargo run
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Expected endpoints:
 
-## Environment Setup
+- `http://127.0.0.1:3001/health`
+- `http://127.0.0.1:3001/docs`
+- `http://127.0.0.1:3001/openapi.json`
 
-Create your local env file:
+### 2. Start the UI
 
 ```bash
 cp .env.example .env.local
+npm install
+npm run dev
 ```
 
-The UI supports per-network contract overrides.
-For current testnet deployment, set:
+Open:
 
-```bash
-NEXT_PUBLIC_TESTNET_ORACLE=nest-oracle-6.testnet
-NEXT_PUBLIC_TESTNET_VOTING=nest-voting-4.testnet
-NEXT_PUBLIC_TESTNET_VOTING_TOKEN=nest-token-2.testnet
-NEXT_PUBLIC_TESTNET_VAULT=nest-vault-2.testnet
-NEXT_PUBLIC_TESTNET_COLLATERAL_TOKEN=mocknear-1.testnet
-NEXT_PUBLIC_TESTNET_FINDER=nest-finder-2.testnet
-NEXT_PUBLIC_TESTNET_STORE=nest-store-2.testnet
-NEXT_PUBLIC_TESTNET_REGISTRY=nest-registry-2.testnet
-NEXT_PUBLIC_TESTNET_IDENTIFIER_WHITELIST=nest-whitelist-1.testnet
-NEXT_PUBLIC_TESTNET_SLASHING_LIBRARY=nest-slashing-2.testnet
-```
+- `http://localhost:3000`
 
-`NEXT_PUBLIC_INDEXER_URL` should point to your indexer instance.
+### 3. Demo Flow
 
-## Notes
-
-- `/app/vote` includes:
-  - NEST and collateral storage registration actions.
-  - Vault collateral deposit flow (`ft_transfer_call`) to mint NEST.
-- Wallet must be connected on testnet and signed-in account must have gas.
-
-## Learn More about NEAR
-
-To learn more about NEAR, take a look at the following resources:
-
-- [NEAR Documentation](https://docs.near.org) - learn about NEAR.
-- [Frontend Docs](https://docs.near.org/build/web3-apps/quickstart) - learn about this example.
-
-You can check out [the NEAR repository](https://github.com/near) - your feedback and contributions are welcome!
-
-## Learn More about Next.js
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+1. Connect wallet (testnet).
+2. Go to `/app/propose` and submit an assertion.
+3. Go to `/app/verify` to view/dispute.
+4. Go to `/app/vote` for dispute voting flow.
+5. Go to `/app/settled` to inspect final outcomes.

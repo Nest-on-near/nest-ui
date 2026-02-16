@@ -4,37 +4,42 @@ export type NetworkId = 'mainnet' | 'testnet';
 
 export const CONTRACTS = {
   mainnet: {
-    oracle: process.env.NEXT_PUBLIC_MAINNET_ORACLE || 'nest-oracle.near',
-    voting: process.env.NEXT_PUBLIC_MAINNET_VOTING || 'nest-voting.near',
-    votingToken: process.env.NEXT_PUBLIC_MAINNET_VOTING_TOKEN || 'nest-token.near',
-    vault: process.env.NEXT_PUBLIC_MAINNET_VAULT || 'nest-vault.near',
-    collateralToken: process.env.NEXT_PUBLIC_MAINNET_COLLATERAL_TOKEN || 'wrap.near',
-    finder: process.env.NEXT_PUBLIC_MAINNET_FINDER || 'nest-finder.near',
-    store: process.env.NEXT_PUBLIC_MAINNET_STORE || 'nest-store.near',
-    registry: process.env.NEXT_PUBLIC_MAINNET_REGISTRY || 'nest-registry.near',
+    oracle: process.env.NEXT_PUBLIC_MAINNET_ORACLE || 'oracle.nest-beta.near',
+    voting: process.env.NEXT_PUBLIC_MAINNET_VOTING || 'voting.nest-beta.near',
+    votingToken: process.env.NEXT_PUBLIC_MAINNET_VOTING_TOKEN || 'token.nest-beta.near',
+    collateralToken:
+      process.env.NEXT_PUBLIC_MAINNET_COLLATERAL_TOKEN ||
+      '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1',
+    finder: process.env.NEXT_PUBLIC_MAINNET_FINDER || 'finder.nest-beta.near',
+    store: process.env.NEXT_PUBLIC_MAINNET_STORE || 'store.nest-beta.near',
+    registry: process.env.NEXT_PUBLIC_MAINNET_REGISTRY || 'registry.nest-beta.near',
     identifierWhitelist:
-      process.env.NEXT_PUBLIC_MAINNET_IDENTIFIER_WHITELIST || 'nest-identifiers.near',
-    slashingLibrary: process.env.NEXT_PUBLIC_MAINNET_SLASHING_LIBRARY || 'nest-slashing.near',
+      process.env.NEXT_PUBLIC_MAINNET_IDENTIFIER_WHITELIST || 'whitelist.nest-beta.near',
+    slashingLibrary:
+      process.env.NEXT_PUBLIC_MAINNET_SLASHING_LIBRARY || 'slashing.nest-beta.near',
   },
   testnet: {
-    oracle: process.env.NEXT_PUBLIC_TESTNET_ORACLE || 'nest-oracle-6.testnet',
-    voting: process.env.NEXT_PUBLIC_TESTNET_VOTING || 'nest-voting-4.testnet',
-    votingToken: process.env.NEXT_PUBLIC_TESTNET_VOTING_TOKEN || 'nest-token-2.testnet',
-    vault: process.env.NEXT_PUBLIC_TESTNET_VAULT || 'nest-vault-2.testnet',
+    oracle: process.env.NEXT_PUBLIC_TESTNET_ORACLE || 'nest-oracle-7.testnet',
+    voting: process.env.NEXT_PUBLIC_TESTNET_VOTING || 'nest-voting-5.testnet',
+    votingToken: process.env.NEXT_PUBLIC_TESTNET_VOTING_TOKEN || 'nest-token-3.testnet',
     collateralToken:
       process.env.NEXT_PUBLIC_TESTNET_COLLATERAL_TOKEN || 'mocknear-1.testnet',
-    finder: process.env.NEXT_PUBLIC_TESTNET_FINDER || 'nest-finder-2.testnet',
-    store: process.env.NEXT_PUBLIC_TESTNET_STORE || 'nest-store-2.testnet',
-    registry: process.env.NEXT_PUBLIC_TESTNET_REGISTRY || 'nest-registry-2.testnet',
+    finder: process.env.NEXT_PUBLIC_TESTNET_FINDER || 'nest-finder-3.testnet',
+    store: process.env.NEXT_PUBLIC_TESTNET_STORE || 'nest-store-3.testnet',
+    registry: process.env.NEXT_PUBLIC_TESTNET_REGISTRY || 'nest-registry-3.testnet',
     identifierWhitelist:
-      process.env.NEXT_PUBLIC_TESTNET_IDENTIFIER_WHITELIST || 'nest-whitelist-1.testnet',
+      process.env.NEXT_PUBLIC_TESTNET_IDENTIFIER_WHITELIST || 'nest-whitelist-2.testnet',
     slashingLibrary:
-      process.env.NEXT_PUBLIC_TESTNET_SLASHING_LIBRARY || 'nest-slashing-2.testnet',
+      process.env.NEXT_PUBLIC_TESTNET_SLASHING_LIBRARY || 'nest-slashing-3.testnet',
   },
 } as const;
 
 export const CURRENCIES: Record<NetworkId, Record<string, CurrencyConfig>> = {
   mainnet: {
+    '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1': {
+      symbol: 'USDC',
+      decimals: 6,
+    },
     'usdc.near': { symbol: 'USDC', decimals: 6 },
     'wrap.near': { symbol: 'wNEAR', decimals: 24 },
   },
@@ -45,7 +50,8 @@ export const CURRENCIES: Record<NetworkId, Record<string, CurrencyConfig>> = {
   },
 };
 
-export const DEFAULT_NETWORK: NetworkId = 'testnet';
+const envNetwork = process.env.NEXT_PUBLIC_NEAR_NETWORK;
+export const DEFAULT_NETWORK: NetworkId = envNetwork === 'testnet' ? 'testnet' : 'mainnet';
 
 export function getContracts(networkId: NetworkId = DEFAULT_NETWORK) {
   return CONTRACTS[networkId];

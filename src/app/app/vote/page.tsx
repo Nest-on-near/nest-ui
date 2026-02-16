@@ -26,21 +26,19 @@ import {
   formatDuration,
   formatTokenAmount,
   nsToMs,
-  parseTokenAmount,
+  parseTokenAmount
 } from '@/lib/utils';
 import { decodeClaimForDisplay } from '@/lib/bytes32';
 import { bytes32ArrayToHex, hexToBytes32Array } from '@/lib/bytes32';
 import { useToast } from '@/components/ui/toast';
-import { DEFAULT_NETWORK, getContracts, getCurrencyConfig } from '@/lib/near/config';
+import { DEFAULT_NETWORK, getContracts } from '@/lib/near/config';
 import { getDvmRequest, getDvmRequestId, getOracleAssertion } from '@/lib/near/contracts';
 import {
   useDisputedVotes,
   useDvmConfig,
   useVotingPower,
-  useTokenBalance,
   useStorageRegistered,
   useRegisterTokenStorage,
-  useDepositCollateralToVault,
   useStoredCommitments,
   useCommitVote,
   useRevealVote,
@@ -88,20 +86,13 @@ function VotePageContent() {
   const walletDisconnected = !signedAccountId;
   const searchParams = useSearchParams();
   const contracts = getContracts(DEFAULT_NETWORK);
-  const collateralConfig = getCurrencyConfig(contracts.collateralToken, DEFAULT_NETWORK);
-  const collateralDecimals = collateralConfig?.decimals ?? 24;
-  const collateralSymbol = collateralConfig?.symbol ?? 'Collateral';
-  const [depositAmount, setDepositAmount] = useState('');
   const { addToast } = useToast();
 
   const { data: disputedVotes, isLoading } = useDisputedVotes();
   const { data: dvmConfig } = useDvmConfig();
   const { data: votingPower } = useVotingPower();
-  const { data: collateralBalance } = useTokenBalance(contracts.collateralToken);
   const { data: nestStorageRegistered } = useStorageRegistered(contracts.votingToken);
-  const { data: collateralStorageRegistered } = useStorageRegistered(contracts.collateralToken);
   const registerStorageMutation = useRegisterTokenStorage();
-  const depositCollateralMutation = useDepositCollateralToVault();
   const { data: storedCommitments } = useStoredCommitments();
 
   const committedRequestIds = useMemo(() => {
@@ -223,38 +214,23 @@ function VotePageContent() {
         </CardContent>
       </Card>
 
-      {/* Vault Deposit */}
+      {/* NEST Access */}
       <Card>
         <CardContent className="p-6 space-y-4">
           <div>
-            <p className="text-sm text-foreground-muted">Get NEST from Vault</p>
+            <p className="text-sm text-foreground-muted">Get NEST for Voting</p>
             <p className="text-sm text-foreground-secondary mt-1">
-              Register storage once, then deposit {collateralSymbol} into the vault to mint NEST 1:1.
+              NEST is directly minted by an authorized operator for this demo. Register your NEST storage and then request minting to your account.
             </p>
           </div>
           <div className="text-xs text-foreground-muted space-y-1">
-            <p>Collateral token: <span className="font-mono">{contracts.collateralToken}</span></p>
-            <p>Vault: <span className="font-mono">{contracts.vault}</span></p>
+            <p>NEST token: <span className="font-mono">{contracts.votingToken}</span></p>
           </div>
           <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-            <div>
-              <span className="text-foreground-muted">Your {collateralSymbol}: </span>
-              <span className="font-medium">
-                {signedAccountId && collateralBalance
-                  ? formatTokenAmount(collateralBalance, collateralDecimals)
-                  : '—'}
-              </span>
-            </div>
             <div>
               <span className="text-foreground-muted">NEST storage: </span>
               <Badge variant={nestStorageRegistered ? 'success' : 'warning'}>
                 {nestStorageRegistered ? 'Registered' : 'Missing'}
-              </Badge>
-            </div>
-            <div>
-              <span className="text-foreground-muted">{collateralSymbol} storage: </span>
-              <Badge variant={collateralStorageRegistered ? 'success' : 'warning'}>
-                {collateralStorageRegistered ? 'Registered' : 'Missing'}
               </Badge>
             </div>
           </div>
@@ -285,82 +261,10 @@ function VotePageContent() {
             >
               Register NEST Storage
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={
-                walletDisconnected ||
-                !!collateralStorageRegistered ||
-                registerStorageMutation.isPending
-              }
-              loading={registerStorageMutation.isPending}
-              onClick={async () => {
-                try {
-                  await registerStorageMutation.mutateAsync({
-                    tokenContractId: contracts.collateralToken,
-                  });
-                  addToast({
-                    type: 'success',
-                    title: `${collateralSymbol} storage registered`,
-                    message: 'Your account can now hold and transfer collateral.',
-                  });
-                } catch (err) {
-                  addToast({
-                    type: 'error',
-                    title: 'Storage registration failed',
-                    message: (err as Error).message,
-                  });
-                }
-              }}
-            >
-              Register {collateralSymbol} Storage
-            </Button>
           </div>
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            <input
-              className="h-9 rounded-md border border-border px-3 text-sm bg-background min-w-[220px]"
-              type="number"
-              min="0"
-              step="0.0001"
-              placeholder={`Deposit ${collateralSymbol} amount`}
-              value={depositAmount}
-              onChange={(e) => setDepositAmount(e.target.value)}
-              disabled={walletDisconnected || depositCollateralMutation.isPending}
-            />
-            <Button
-              size="sm"
-              disabled={
-                walletDisconnected ||
-                depositCollateralMutation.isPending ||
-                !nestStorageRegistered ||
-                !collateralStorageRegistered
-              }
-              loading={depositCollateralMutation.isPending}
-              onClick={async () => {
-                try {
-                  const amountRaw = parseTokenAmount(depositAmount, collateralDecimals);
-                  if (BigInt(amountRaw) <= 0n) {
-                    throw new Error('Amount must be greater than 0');
-                  }
-                  await depositCollateralMutation.mutateAsync({ amountRaw });
-                  setDepositAmount('');
-                  addToast({
-                    type: 'success',
-                    title: 'Collateral deposited',
-                    message: 'NEST mint transaction submitted via vault.',
-                  });
-                } catch (err) {
-                  addToast({
-                    type: 'error',
-                    title: 'Deposit failed',
-                    message: (err as Error).message,
-                  });
-                }
-              }}
-            >
-              Deposit to Vault
-            </Button>
-          </div>
+          <p className="text-xs text-foreground-muted">
+            Transfers are restricted. You can still stake NEST into voting using protocol routes.
+          </p>
         </CardContent>
       </Card>
 
