@@ -4,6 +4,20 @@ Nest is an optimistic oracle on NEAR that lets anyone post claims, challenge inc
 
 Nest is a modular truth-resolution layer for NEAR. It combines an Optimistic Oracle (fast assertions with bonded liveness windows), optional escalation policies, and a DVM-style dispute process for objective settlement when claims are contested. The project includes smart contracts, indexers, and a frontend so teams can run the full flow end-to-end: propose -> dispute -> vote -> settle.
 
+## Hackathon FYI
+
+### Ping Pay
+
+Ping Pay is useful for this project in two key ways:
+
+1. **Instant USDC onramping**  
+   This improves the user onboarding flow for Nest Prediction Markets, especially for first-time users who need USDC quickly.
+
+2. **Path to multi-chain markets**  
+   By accepting USDC bridged through intents on Ping infrastructure, markets can become chain-agnostic and harder to fragment.
+   Current blocker: this is pending until Ping releases `ft_transfer_call` support.
+
+
 ## What Problem Nest Solves
 
 Smart contracts are excellent at enforcing logic, but weak at deciding truth about events that happen outside the chain. Most applications either:
@@ -137,3 +151,4 @@ Open:
 3. Go to `/app/verify` to view/dispute.
 4. Go to `/app/vote` for dispute voting flow.
 5. Go to `/app/settled` to inspect final outcomes.
+
