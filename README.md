@@ -11,7 +11,7 @@ Nest is a modular truth-resolution layer for NEAR. It combines an Optimistic Ora
 Ping Pay is useful for this project in two key ways:
 
 1. **Instant USDC onramping**  
-   This improves the user onboarding flow for Nest Prediction Markets, especially for first-time users who need USDC quickly.
+   This improves the user onboarding flow for Nest Prediction Markets, especially for first-time users who need USDC quickly. Tested in allowed regions. It works!
 
 2. **Path to multi-chain markets**  
    By accepting USDC bridged through intents on Ping infrastructure, markets can become chain-agnostic and harder to fragment.
