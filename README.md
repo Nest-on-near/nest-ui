@@ -93,9 +93,12 @@ Nest is split into four repos that map directly to product, protocol, data, and 
 4. [`nest-markets`](https://github.com/Nest-on-near/nest-markets)  
    A concrete integration that uses Nest in a prediction-market context. Visit this to see why Nest matters in practice: objective market resolution, challenge windows, and verifiable outcomes for real applications.
 
+5. [`nest-agent-skills`](https://github.com/Nest-on-near/nest-skills)  
+   Agent skill-pack and workflow accelerators for the Nest ecosystem. Visit this to understand how developer/agent workflows are standardized for faster integrations, repeatable ops, and smoother hackathon execution.
+
 ## Design Choices
 
-- **Optimistic assertions instead of hard-coded API-only feeds**  
+- **Optimistic assertions instead of Yield and Resume**  
  While building the Oracle the main concern or thought that comes to one's mind is why not YIELD AND RESUME? The answer .. it only allows actions through APIs. APIs can only cover such a wide domain, at the end of the day an Optimistic Oracle can be used to assert ANY type of data.
 
 - **Challenge-window first, committee only when needed**  
@@ -151,4 +154,3 @@ Open:
 3. Go to `/app/verify` to view/dispute.
 4. Go to `/app/vote` for dispute voting flow.
 5. Go to `/app/settled` to inspect final outcomes.
-
